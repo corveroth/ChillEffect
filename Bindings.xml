@@ -1,0 +1,9 @@
+<Bindings>
+	<Binding name="Toggle Currencies Summary" header="THEALTERNATIVES">
+		if ChillEffectAlts.frame:IsShown() then
+			ChillEffectAlts.frame:Hide()
+		else
+			ChillEffectAlts.frame:Show()
+		end
+	</Binding>
+</Bindings>
