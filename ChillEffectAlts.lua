@@ -1,6 +1,9 @@
 local addonName, addonTable = ...;
 ChillEffectAlts = LibStub("AceAddon-3.0"):NewAddon("ChillEffectAlts", "AceEvent-3.0")
 local L = LibStub("AceLocale-3.0"):GetLocale("ChillEffectAlts", true)
+local CurrenciesModule = addonTable.Currencies
+local CharacterModule = addonTable.Character
+local Character
 
 function ChillEffectAlts:OnInitialize()
 	local defaults = {
@@ -10,7 +13,7 @@ function ChillEffectAlts:OnInitialize()
 			inventory = {},
 		},
 	}
-	self.db = LibStub("AceDB-3.0"):New("CEAltsDB")
+	self.db = LibStub("AceDB-3.0"):New("CEAltsDB", defaults)
 	
 	SLASH_ChillEffectAlts1 = "/alt"
 	SlashCmdList["ChillEffectAlts"] = function()
@@ -82,41 +85,53 @@ function ChillEffectAlts:OnInitialize()
 	end)
 end
 
+local function UpdateCurrencies()
+	assert(Character)
+	Character:UpdateCurrencies()
+	CurrenciesModule:RedrawCurrencyFrame()
+end
+
+local function UpdateBags()
+	assert(Character)
+	Character:UpdateBags()
+end
+
+local function UpdateBank()
+	assert(Character)
+	Character:UpdateBank()
+end
+
+local function UpdateVoidStorage()
+	assert(Character)
+	Character:UpdateVoidStorage()
+end
+
+function ChillEffectAlts:BANKFRAME_OPENED()
+	self.isBankOpen = true
+	self:UpdateBank()
+end
+
+function ChillEffectAlts:BANKFRAME_CLOSED()
+	self.isBankOpen = false
+end
+
 local gui_built = false
 function ChillEffectAlts:OnEnable()
 	if not gui_built then
-		addonTable.Currencies:CreateCurrencyFrame()
+		CurrenciesModule:CreateCurrencyFrame()
 	end
 	
-	local character = addonTable.Character:new(self.db.char)
-	function self:RedrawCurrencyFrame(self, currencyOrder)
-		addonTable.Currencies:RedrawCurrencyFrame(currencyOrder)
-	end
+	Character = CharacterModule:new(self.db.char)
 	
 	-- Track the open state of the bank. Can't check for IsShown, because addons
 	self.isBankOpen = false;
-	addon:RegisterEvent("BANKFRAME_OPENED", function() self.isBankOpen = true self.UpdateItems() end)
-	addon:RegisterEvent("BANKFRAME_CLOSED", function() self.isBankOpen = false end)
+	self:RegisterEvent("BANKFRAME_OPENED")
+	self:RegisterEvent("BANKFRAME_CLOSED")
 	
-	local function UpdateCurrencies()
-		character.UpdateCurrencies()
-		self.db.char.currencies = character.GetCurrencies()
-		self:RedrawCurrencyFrame()
-	end
+	self:RegisterEvent("PLAYER_ENTERING_WORLD", UpdateCurrencies)
+	self:RegisterEvent("PLAYER_MONEY", UpdateCurrencies)
+	self:RegisterEvent("CURRENCY_DISPLAY_UPDATE", UpdateCurrencies)
 	
-	local function UpdateBags()
-		character.UpdateBags()
-		self.db.char.bags = character.GetBags()
-		self.db.char.heirlooms = character.GetHeirlooms()
-	end
-	
-	local function UpdateInventory()
-	
-	end
-	addon:RegisterEvent("PLAYER_ENTERING_WORLD", UpdateCurrencies)
-	addon:RegisterEvent("PLAYER_MONEY", UpdateCurrencies)
-	addon:RegisterEvent("CURRENCY_DISPLAY_UPDATE", UpdateCurrencies)
-	
-	addon:RegisterEvent("BAG_UPDATE_DELAYED", UpdateBags)
+	self:RegisterEvent("BAG_UPDATE_DELAYED", UpdateBags)
 	
 end

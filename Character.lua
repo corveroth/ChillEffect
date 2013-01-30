@@ -4,6 +4,8 @@ local addonName, addonTable = ...;
 	Usage note:
 	The methods of this object manipulate the Blizzard APIs to populate the fields of the Character object.
 	To retrieve the final data, access the tables directly.
+	
+	Rather than getter+setter, I've gone with updater+getter here. I feel like it makes sense.
 --]]
 local Character = {};
 Character.__index = Character;
@@ -60,46 +62,20 @@ function Character:new(db)
 	setmetatable(self, Character);
 	
 	self.db = db;
-	self.db.currencies = {};	-- <name, count>
-	self.db.heirlooms = {};	-- <name, location>
-	self.db.conveyable = {};	-- <name, count>
-	self.miscData = {};		-- <key, data>
-	
-	
-	
-	-- Subtle bug averted here. If these functions are defined using colon syntax, it creates conflicting "self" references as written
-	local function UpdateCurrencies()
-		self:GetCurrencyData();
-		self.db.char.currency = self.currencies;
-		addon:RedrawCurrencyFrame()
-	end
-	
-	local function UpdateItems()
-		self:GetHeirloomData(1);
-		self:GetConveyableData(1);
-		if self.isBankOpen then
-			-- print("Scanning bank too!")
-			self:GetHeirloomData(0);
-			self:GetConveyableData(0);
-		end
-		self.db.char.heirloom = self.heirlooms
-		self.db.char.conveyable = self.conveyable
-	end
+	-- self.db.currencies = {};	-- <name, count>
+	-- self.db.heirlooms = {};	-- <name, location>
+	-- self.db.conveyable = {};	-- <name, count>
+	-- self.miscData = {};		-- <key, data>
 	
 	return self;
-end
-
-function Character:GetName()
-	return GetUnitName("player")
 end
 
 --[[
 	Collects the names and quantities of the character's Currencies.
 	NOTE: Includes gold as well, though this is not considered a Currency by Blizzard
-	@return currencies - an associative array mapping currency names to their quantities
 --]]
-function Character:GetCurrencyData()
-	local currencies = {};
+function Character:UpdateCurrencies()
+	wipe(self.db.currencies)
 	
 	self:ExpandCurrencyHeaders();
 	
@@ -108,15 +84,12 @@ function Character:GetCurrencyData()
 		local name, isHeader, isExpanded, isUnused, isWatched, count, extraCurrencyType, icon, itemID = GetCurrencyListInfo(i);
 		
 		if (not isHeader) then
-			currencies[name] = count;
+			self.db.currencies[name] = count;
 		end
 	end
 	
 	-- Using a global string, en-US "Money", as key.
-	currencies[MONEY] = GetMoney();
-	
-	self.currencies = currencies;
-	return currencies;
+	self.db.currencies[MONEY] = GetMoney();
 end
 
 --[[
@@ -139,106 +112,50 @@ function Character:ExpandCurrencyHeaders()
 end
 
 --[[
-	Collects a list of the heirloom items the character possesses, and their general locations (bank, bags, equipped).
-	NOTE: Will fail to detect any heirlooms currently in a mailbox.
 	
-	@params location - 1 for bags, 2 for bank
-	@return heirlooms - an associative array mapping heirloom itemIDs to their general location
 --]]
 function Character:GetHeirloomData(location)
-	local heirlooms = {};
 	
-	local link
-	if location == 1 then
-		for bag = 0, NUM_BAG_SLOTS do
-			for slot = 1, GetContainerNumSlots(bag) do
-				link = GetContainerItemLink(bag, slot)
-				if link then
-					ItemScanner:AddToItemPool(link, function(link)
-						local name, id, rarity = GetItemInfo(link)
-						if rarity == 7 then
-							heirlooms[name] = {bag, slot}
-						end
-					end)
-				end
-			end
-		end
-	else
-		for bag = NUM_BAG_SLOTS, NUM_BAG_SLOTS+NUM_BANKBAGSLOTS do
-			if bag == NUM_BAG_SLOTS then bag = 0 end -- a little hackish; the main bank inventory is slot 0 and bank bags start at NUM_BAG_SLOTS+1
-			for slot = 1, GetContainerNumSlots(bag) do
-				link = GetContainerItemLink(bag, slot)
-				if link then
-					ItemScanner:AddToItemPool(link, function(link)
-						local name, id, rarity = GetItemInfo(link)
-						if rarity == 7 then
-							heirlooms[name] = {bag, slot}
-						end
-					end)
-				end
-			end
-		end
-	end
-	
-	self.heirlooms = heirlooms;
-	return heirlooms;
 end
 
+function Character:GetBags()
+
+end
 --[[
-	Collects the names and quantities of conveyable items the character possesses, and their general locations (bank, bags, equipped).
-	Conveyable is defined as any item that is not soulbound or an heirloom.
 	
-	@params location - 1 for bags, 2 for bank
-	@return conveyables - an associative array mapping conveyable itemIDs to their general locations
 --]]
-function Character:UpdateBags(location)
-	local conveyables = {};
+function Character:UpdateBags()
+	wipe(self.db.bags)
 	
 	local link, name, link, rarity, count
-	if location == 1 then
-		for bag = 0, NUM_BAG_SLOTS do
-			for slot = 1, GetContainerNumSlots(bag) do
-				link = GetContainerItemLink(bag, slot)
-				if link then
-					ItemScanner:AddToItemPool(link, function(link)
-						-- local name, id, rarity = GetItemInfo(link)
-						-- if rarity > 1 and rarity < 7 and not IsSoulboundItem(bag, slot) then -- skip heirlooms and vendor trash
-							-- count = select(2, GetContainerItemInfo(bag, slot))
-							-- if not conveyables[name] then
-								-- conveyables[name] = count
-							-- else
-								-- conveyables[name] = conveyables[name] +count
-							-- end
-						-- end
-						
-					end)
-				end
-			end
-		end
-	else
-		for bag = NUM_BAG_SLOTS, NUM_BAG_SLOTS+NUM_BANKBAGSLOTS do
-			if bag == NUM_BAG_SLOTS then bag = 0 end -- a little hackish; the main bank inventory is slot 0 and bank bags start at NUM_BAG_SLOTS+1
-			for slot = 1, GetContainerNumSlots(bag) do
-				link = GetContainerItemLink(bag, slot)
-				if link then
-					ItemScanner:AddToItemPool(link, function(link)
-						local name, id, rarity = GetItemInfo(link)
-						if rarity > 1 and rarity < 7 and not IsSoulboundItem(bag, slot) then -- skip heirlooms and vendor trash
-							count = select(2, GetContainerItemInfo(bag, slot))
-							if not conveyables[name] then
-								conveyables[name] = count
-							else
-								conveyables[name] = conveyables[name] +count
-							end
-						end
-					end)
-				end
+
+	for bag = 0, NUM_BAG_SLOTS do
+		for slot = 1, GetContainerNumSlots(bag) do
+			link = GetContainerItemLink(bag, slot)
+			if link then
+				ItemScanner:AddToItemPool(link, function(link)
+					tinsert(self.db.bags, {bag, slot, link, count})
+				end)
 			end
 		end
 	end
+end
+
+function Character:UpdateBank()
+	wipe(self.db.bank)
 	
-	self.conveyables = conveyables;
-	return conveyables;
+	local link, name, link, rarity, count
+	for bag = NUM_BAG_SLOTS, NUM_BAG_SLOTS+NUM_BANKBAGSLOTS do
+		if bag == NUM_BAG_SLOTS then bag = 0 end -- a little hackish; the main bank inventory is slot 0 and bank bags start at NUM_BAG_SLOTS+1
+		for slot = 1, GetContainerNumSlots(bag) do
+			link = GetContainerItemLink(bag, slot)
+			if link then
+				ItemScanner:AddToItemPool(link, function(link)
+					tinsert(self.db.bank, {bag, slot, link, count})
+				end)
+			end
+		end
+	end
 end
 
 --[[
