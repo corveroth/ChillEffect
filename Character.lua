@@ -134,6 +134,7 @@ function Character:UpdateBags()
 			link = GetContainerItemLink(bag, slot)
 			if link then
 				ItemScanner:AddToItemPool(link, function(link)
+					local count = select(2, GetContainerItemInfo(bag, slot))
 					tinsert(self.db.bags, {bag, slot, link, count})
 				end)
 			end
@@ -151,6 +152,7 @@ function Character:UpdateBank()
 			link = GetContainerItemLink(bag, slot)
 			if link then
 				ItemScanner:AddToItemPool(link, function(link)
+					local count = select(2, GetContainerItemInfo(bag, slot))
 					tinsert(self.db.bank, {bag, slot, link, count})
 				end)
 			end
