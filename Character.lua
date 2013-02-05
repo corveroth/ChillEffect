@@ -111,6 +111,15 @@ function Character:ExpandCurrencyHeaders()
 	end
 end
 
+function Character:GetCurrencyCount(currency)
+	-- This is a little ugly. If we don't have a 'db' entry, the Character is a profile being passed in raw
+	if self.db then
+		return self.db.currencies[currency]
+	else
+		return self.currencies[currency]
+	end
+end
+
 --[[
 	
 --]]
@@ -146,8 +155,8 @@ function Character:UpdateBank()
 	wipe(self.db.bank)
 	
 	local link, name, link, rarity, count
-	for bag = NUM_BAG_SLOTS, NUM_BAG_SLOTS+NUM_BANKBAGSLOTS do
-		if bag == NUM_BAG_SLOTS then bag = 0 end -- a little hackish; the main bank inventory is slot 0 and bank bags start at NUM_BAG_SLOTS+1
+	for bag = NUM_BAG_SLOTS+1, NUM_BAG_SLOTS+NUM_BANKBAGSLOTS+1 do
+		if bag == NUM_BAG_SLOTS+NUM_BANKBAGSLOTS+1 then bag = -1 end -- a little hackish; the main bank inventory is slot -1 and bank bags start at NUM_BAG_SLOTS+1
 		for slot = 1, GetContainerNumSlots(bag) do
 			link = GetContainerItemLink(bag, slot)
 			if link then

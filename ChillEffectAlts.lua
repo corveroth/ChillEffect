@@ -12,8 +12,13 @@ function ChillEffectAlts:OnInitialize()
 			bags = {},
 			inventory = {},
 		},
+		global = {
+			shown = {}
+		}
 	}
 	self.db = LibStub("AceDB-3.0"):New("CEAltsDB", defaults)
+	self.db.realm[UnitName("player")] = true
+	self.db.factionrealm[UnitName("player")] = true
 	
 	SLASH_ChillEffectAlts1 = "/alt"
 	SlashCmdList["ChillEffectAlts"] = function()
@@ -117,9 +122,12 @@ end
 
 local gui_built = false
 function ChillEffectAlts:OnEnable()
+	CurrenciesModule:SetDB(self.db)
+
 	if not gui_built then
 		CurrenciesModule:CreateCurrencyFrame()
 	end
+	
 	
 	Character = CharacterModule:new(self.db.char)
 	
