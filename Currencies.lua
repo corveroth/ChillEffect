@@ -13,6 +13,14 @@ local MIN_COLUMN_CHAR_WIDTH = 5;
 local NUM_MAX_CURRENCY_HEADERS = 6; -- Mostly a sanity check. We'll run out of space first.
 local CharacterModule = addonTable.Character
 
+local function tcount(tab)
+   local n = 0
+   for _ in pairs(tab) do
+     n = n + 1
+   end
+   return n
+ end
+ 
 --[[
 	Names are as returned by GetCurrencyListInfo for the relevant row. Localization: to-do
 	IDs are used for ordering. Could be a bitfield I suppose.
@@ -204,22 +212,28 @@ end
 -- You're welcome. I love you man. ~Your Past Self
 local function DropdownRow_OnClick(self, arg1, arg2, checked)
 	-- arg1 = currencyID, arg2 = nil
-	
+	-- print(arg1, arg2, checked)
 	if checked then
-		self.db.global.shown[arg1] = true
+		Currencies:GetDB().global.shown[arg1] = true
 	else
-		self.db.global.shown[arg1] = nil
+		Currencies:GetDB().global.shown[arg1] = nil
 	end
-	
-	if #self.db.global.shown >= 6 then
-		print("You may only track 6 currencies at once")
-		return
+		
+	local numShown = tcount(Currencies:GetDB().global.shown)
+	if numShown > 6 then
+		UIErrorsFrame_OnEvent(UIErrorsFrame, "UI_ERROR_MESSAGE", "You may only track 6 currencies at once")
+		Currencies:GetDB().global.shown[arg1] = nil
+	elseif numShown < 1 then
+		UIErrorsFrame_OnEvent(UIErrorsFrame, "UI_ERROR_MESSAGE", "You must track at least 1 currency")
+		Currencies:GetDB().global.shown[arg1] = true
 	end
+	Currencies:RedrawCurrencyFrame()
 end
 
 function Currencies:CreateCurrencyFrame()
 	ChillEffectCurrencyFrame = CreateFrame("Frame", "ChillEffectCurrencyFrame", CharacterFrame, "PortraitFrameTemplate")
 	ChillEffectCurrencyFrame:SetAllPoints()
+	self.frame = ChillEffectCurrencyFrame
 	
 	-- Set the anchors for the inset during Redraw, because it will shift depending on the number of factions
 	ChillEffectCurrencyFrameInset = CreateFrame("Frame", "ChillEffectCurrencyFrameInset", ChillEffectCurrencyFrame, "InsetFrameTemplate")
@@ -249,7 +263,7 @@ function Currencies:CreateCurrencyFrame()
 
 	--== Create, but don't initialize, the headers
 	do
-		ChillEffectCurrencyFrame.columns = {}
+		ChillEffectCurrencyFrame.headers = {}
 		-- Set the character header
 		ChillEffectCurrencyFrameHeader1 = CreateFrame("Button", "ChillEffectCurrencyFrameHeader1", ChillEffectCurrencyFrame, "WhoFrameColumnHeaderTemplate")
 		ChillEffectCurrencyFrameHeader1:SetPoint("TOPLEFT", 6, -62)
@@ -258,7 +272,7 @@ function Currencies:CreateCurrencyFrame()
 		end)
 		ChillEffectCurrencyFrameHeader1:SetText("Character")
 		WhoFrameColumn_SetWidth(ChillEffectCurrencyFrameHeader1, CECF_FIRST_COLUMN_MIN_WIDTH)
-		ChillEffectCurrencyFrame.columns[1] = ChillEffectCurrencyFrameHeader1
+		ChillEffectCurrencyFrame.headers[1] = ChillEffectCurrencyFrameHeader1
 		
 		-- OnClick scripts are set during redraw because the last button functions differently
 		local new, headerIcon --, active
@@ -280,15 +294,7 @@ function Currencies:CreateCurrencyFrame()
 			end)
 			new:SetScript("OnLeave", GameTooltip_Hide)
 			
-			-- new.active = new:CreateTexture(new:GetName().."ActiveLeft", "BORDER")
-			-- new.active:SetTexture([[Interface/PaperDollInfoFrame/UI-Character-Tab-RealHighlight]])
-			-- new.active:SetBlendMode("ADD")
-			-- new.active:SetRotation(PI)
-			-- new.active:SetPoint("TOPLEFT", -20, 12)
-			-- new.active:SetPoint("BOTTOMRIGHT", 20, -12)
-			-- new.active:Hide()
-
-			ChillEffectCurrencyFrame.columns[i] = new
+			ChillEffectCurrencyFrame.headers[i] = new
 		end
 	end
 	
@@ -362,8 +368,13 @@ function Currencies:CreateCurrencyFrame()
 	self.frame = ChillEffectCurrencyFrame;
 end
 
+function Currencies:GetFrame()
+	return self.frame
+end
 -- If this is the money column, display it in gold. If the text would overflow the expected column width, try to bignumber it.
 local function SetCurrencyColumnText(column, currencyName, currencyWidth, count)
+	local currencyWidth = MIN_COLUMN_CHAR_WIDTH+1
+	column.text:Show()
 	if currencyName == MONEY then
 		if count >= 10000 then
 			column.text:SetText(floor(count/10000))
@@ -377,9 +388,9 @@ local function SetCurrencyColumnText(column, currencyName, currencyWidth, count)
 	end
 end
 
--- Sets the width of the header, body entries, and totals columns
+-- Sets the width of the header, body entries, and totals columns. Calls header:SetWidth(). Not sure how I feel about that.
 local function SetColumnWidth(columnIndex, columnWidth)
-	WhoFrameColumn_SetWidth(ChillEffectCurrencyFrame.columns[columnIndex], columnWidth)
+	WhoFrameColumn_SetWidth(ChillEffectCurrencyFrame.headers[columnIndex], columnWidth)
 	for j=1, CECF_NUM_ROWS do
 		ChillEffectCurrencyFrame.rows[j].columns[columnIndex]:SetWidth(columnWidth)
 	end
@@ -399,7 +410,11 @@ local function SetSortingOrder(header)
 		end
 	else
 		sortType = header.sortType
-		sortOrder = "descending"
+		if sortType == "Name" then
+			sortOrder = "ascending"
+		else
+			sortOrder = "descending"
+		end
 	end
 	-- print(format("Sorting by %s %s", sortType, sortOrder))
 	PlaySound("igMainMenuOptionCheckBoxOn")
@@ -411,31 +426,159 @@ local function ShowSelectionDropdown(header)
 	PlaySound("igMainMenuOptionCheckBoxOn")
 end
 
+local function GetColumnWidth(index)
+	return ChillEffectCurrencyFrame.headers[index]:GetWidth()
+end
+
+local function SetColumnHeader(index, isFinalColumn, currencyName, currencyWidth, currencyIcon)
+	-- print("Drawing column "..index)
+	
+	header = ChillEffectCurrencyFrame.headers[index]
+	header:Show()
+	
+	if not isFinalColumn then
+		header.mouseover = currencyName
+		header.icon:SetTexture(currencyIcon)
+		header.icon:SetTexCoord(0, 1, 0, 1)
+		
+		header.sortType = currencyName
+		header:SetScript("OnClick", SetSortingOrder)
+	else
+		header.mouseover = ""
+		header.icon:SetTexture([[Interface\Common\UI-ModelControlPanel]])
+		header.icon:SetTexCoord(0.578125, 0.828125, 0.1484375, 0.2734275)
+		
+		header:SetScript("OnClick", ShowSelectionDropdown)
+	end
+end
+
+local function SetContentColumn(index, currencyName, characterOrder, hordeDB, allianceDB)
+	for j=1, CECF_NUM_ROWS do
+		ChillEffectCurrencyFrame.rows[j].columns[index]:Show()
+	end
+	
+	-- Display the quantities for each cell in the column and keep running totals for both factions
+	local row = 1
+	local character, count
+	local hordeTotal, allianceTotal = 0, 0
+	for k, v in pairs(characterOrder) do
+		character = v[2]
+		count = CharacterModule.GetCurrencyCount(character, currencyName) or 0
+		
+		SetCurrencyColumnText(ChillEffectCurrencyFrame.rows[row].columns[index], currencyName, currencyWidth, count)
+		
+		if hordeDB[v[1]] then
+			hordeTotal = hordeTotal + count
+		elseif allianceDB[v[1]] then
+			allianceTotal = allianceTotal + count
+		end
+		row = row + 1
+	end
+	
+	-- Use next(DB) to see if the DB has any entries.
+	local hasAlliance = allianceDB and (next(allianceDB) ~= nil)
+	local hasHorde = hordeDB and (next(hordeDB) ~= nil)
+	local numFactions = (hasHorde and 1 or 0) + (hasAlliance and 1 or 0)
+	
+	if numFactions == 1 then
+		if hasAlliance then
+			SetCurrencyColumnText(ChillEffectCurrencyFrame.totals[1].columns[index], currencyName, currencyWidth, allianceTotal)
+		elseif hasHorde then
+			SetCurrencyColumnText(ChillEffectCurrencyFrame.totals[1].columns[index], currencyName, currencyWidth, hordeTotal)
+		end
+		ChillEffectCurrencyFrame.totals[1].columns[index].icon:Hide()
+	elseif numFactions > 1 then
+		SetCurrencyColumnText(ChillEffectCurrencyFrame.totals[1].columns[index], currencyName, currencyWidth, allianceTotal)
+		SetCurrencyColumnText(ChillEffectCurrencyFrame.totals[2].columns[index], currencyName, currencyWidth, hordeTotal)
+		ChillEffectCurrencyFrame.totals[1].columns[index].icon:Hide()
+		ChillEffectCurrencyFrame.totals[2].columns[index].icon:Hide()
+	end
+	
+	if index % 2 == 0 then
+		ChillEffectCurrencyFrame.totals[1].columns[index].stripe:Show()
+		ChillEffectCurrencyFrame.totals[2].columns[index].stripe:Show()
+	else
+		ChillEffectCurrencyFrame.totals[1].columns[index].stripe:Hide()
+		ChillEffectCurrencyFrame.totals[2].columns[index].stripe:Hide()
+	end
+end
+
+local function SetFinalColumn(index, hasHorde, hasAlliance)
+	local numFactions = (hasHorde and 1 or 0) + (hasAlliance and 1 or 0)
+	for j=1, CECF_NUM_ROWS do
+		ChillEffectCurrencyFrame.rows[j].columns[index]:Hide()
+	end
+	
+	-- Show the faction icons, hide the stripes
+	if numFactions == 1 then
+		if hasAlliance then
+			ChillEffectCurrencyFrame.totals[1].columns[index].icon:SetTexture([[Interface\PVPFrame\PVP-Currency-Alliance]])
+			
+		else
+			ChillEffectCurrencyFrame.totals[1].columns[index].icon:SetTexture([[Interface\PVPFrame\PVP-Currency-Horde]])
+		end
+		ChillEffectCurrencyFrame.totals[1].columns[index].icon:Show()
+		ChillEffectCurrencyFrame.totals[1].columns[index].stripe:Hide()
+		ChillEffectCurrencyFrame.totals[1].columns[index].text:Hide()
+	elseif numFactions > 1 then
+		ChillEffectCurrencyFrame.totals[1].columns[index].icon:SetTexture([[Interface\PVPFrame\PVP-Currency-Alliance]])
+		ChillEffectCurrencyFrame.totals[1].columns[index].icon:Show()
+		ChillEffectCurrencyFrame.totals[1].columns[index].stripe:Hide()
+		ChillEffectCurrencyFrame.totals[1].columns[index].text:Hide()
+		
+		ChillEffectCurrencyFrame.totals[2].columns[index].icon:SetTexture([[Interface\PVPFrame\PVP-Currency-Horde]])
+		ChillEffectCurrencyFrame.totals[2].columns[index].icon:Show()
+		ChillEffectCurrencyFrame.totals[2].columns[index].stripe:Hide()
+		ChillEffectCurrencyFrame.totals[2].columns[index].text:Hide()
+	end
+end
+
+local function HideColumn(index)
+	-- print("Hiding column "..index)
+	ChillEffectCurrencyFrame.headers[index]:Hide()
+	for j=1, CECF_NUM_ROWS do
+		ChillEffectCurrencyFrame.rows[j].columns[index]:Hide()
+	end
+	for j=1, 2 do
+		ChillEffectCurrencyFrame.totals[j].columns[index]:Hide()
+	end
+end
+
+local function ShowColumn(index)
+	ChillEffectCurrencyFrame.headers[index]:Show()
+	for j=1, CECF_NUM_ROWS do
+		ChillEffectCurrencyFrame.rows[j].columns[index]:Show()
+	end
+	for j=1, 2 do
+		ChillEffectCurrencyFrame.totals[j].columns[index]:Show()
+	end
+end
+
 function Currencies:RedrawCurrencyFrame()
 	local header
 	local currencyName, currencyWidth, currencyIcon 
 	local hasHorde, hasAlliance, hasNeutral, numFactions
 	local realmName = GetRealmName()
+	local customColumnSet = next(self.db.global.shown) ~= nil
 	
 	--== Do we have multiple factions on this realm?
 	hasHorde = self.db.sv.factionrealm["Horde - ".. realmName] and true or false
 	hasAlliance = self.db.sv.factionrealm["Alliance - ".. realmName] and true or false
-	hasNeutral = self.db.sv.factionrealm["Neutral - ".. realmName] and true or false
-	numFactions = (hasHorde and 1 or 0) + (hasAlliance and 1 or 0) -- + (hasNeutral and 1 or 0)
+	numFactions = (hasHorde and 1 or 0) + (hasAlliance and 1 or 0)
 	
-	--== Let's figure out the sorting. Pull everyone into a pair of {characterKey, sortTypeValue} tables, sort those, and use the resulting order
+	--== Let's figure out the column sorting. Pull everyone into a set of {charName, charData, sortTypeValue} tables, sort those, and use the resulting order
 	local character, count
-	local sortTable = {}
+	local characterOrder = {}
 	for k, v in pairs(self.db.sv.realm[realmName]) do
 		character = self.db.sv.char[k.." - ".. realmName]
 		if sortType == "Name" then
-			tinsert(sortTable, {k, character, k})
+			tinsert(characterOrder, {k, character, k})
 		else
 			count = CharacterModule.GetCurrencyCount(character, sortType) or 0
-			tinsert(sortTable, {k, character, count})
+			tinsert(characterOrder, {k, character, count})
 		end
 	end
-	sort(sortTable, function(a,b) 
+	sort(characterOrder, function(a,b) 
 		if sortOrder == "ascending" then
 			if a[3] < b[3] then
 				return true
@@ -455,179 +598,141 @@ function Currencies:RedrawCurrencyFrame()
 		end
 	end)
 	
+	--== Make sure everyone's visible
+	for j=1, NUM_MAX_CURRENCY_HEADERS+2 do
+		ShowColumn(j)
+	end
+	
 	--== Set the first column, the character names, using the savedVars for this realm
 	local row = 1
 	local widestName = 0
-	for k, v in pairs(sortTable) do
+	for k, v in pairs(characterOrder) do
 		ChillEffectCurrencyFrame.rows[row].columns[1].text:SetText(v[1])
 		if ChillEffectCurrencyFrame.rows[row].columns[1].text:GetStringWidth() > widestName then
 			widestName = ChillEffectCurrencyFrame.rows[row].columns[1].text:GetStringWidth()
 		end
 		row = row + 1
 	end
-	for i = 2, 2 do
-		ChillEffectCurrencyFrame.totals[i].columns[1].text:SetText("Totals:")
-	end
-	ChillEffectCurrencyFrame.columns[1]:SetScript("OnClick", SetSortingOrder)
-	ChillEffectCurrencyFrame.columns[1].sortType = "Name"
 	
-	--== That told us how many characters (rows) we need to show
-	for i=row, CECF_NUM_ROWS do
-		ChillEffectCurrencyFrame.rows[row]:Hide()
-	end
-	--== Also, how much space are the names taking? Subtract that, plus the left-side offset, and let's start our column-squeeing mojo
+	ChillEffectCurrencyFrame.totals[numFactions].columns[1].text:SetText("Totals:")
+
+	ChillEffectCurrencyFrame.headers[1]:SetScript("OnClick", SetSortingOrder)
+	ChillEffectCurrencyFrame.headers[1].sortType = "Name"
 	local horzSpaceAvailable = CECF_MAX_WIDTH - widestName - 6;
 	
-	local customShown
+	-- print(format("From %d max, %d remaining", CECF_MAX_WIDTH, horzSpaceAvailable))
+	local columnsShown = nil
 	if self.db.global.shown then
-		customShown = {}
+		-- print("Building custom table")
+		columnsShown = {}
 		for k, v in pairs(self.db.global.shown) do
 			local currencyIndex
 			for i, currencyData in ipairs(CURRENCY_DATA) do
-				if currencyData[1] == v then
+				if currencyData[1] == k then
 					currencyIndex = i
 				end
 			end
-			tinsert(customShown, currencyIndex)
+			tinsert(columnsShown, currencyIndex)
+			-- print("   inserted "..currencyIndex.." into table")
 		end
-		sort(customShown)
+		sort(columnsShown)
 	end
 	
 	--== Okay now figure out the columns
 	local numCurrencyColumns
-	if customShown then
-		numCurrencyColumns = #customShown + 1
+	if customColumnSet then
+		numCurrencyColumns = #columnsShown
 	else
-		numCurrencyColumns = NUM_MAX_CURRENCY_HEADERS + 1
+		numCurrencyColumns = NUM_MAX_CURRENCY_HEADERS
 	end
 	
+	local currentColumn
 	for i = 1, numCurrencyColumns do
+		currentColumn = i + 1
 		
-		horzSpaceAvailable = horzSpaceAvailable - CECF_COLUMN_MARGIN;
-		
-		if customShown then
-			currencyName, currencyWidth, currencyIcon = unpack(CURRENCY_DATA[customShown[i]])
+		if customColumnSet then
+			currencyName, currencyWidth, currencyIcon = unpack(CURRENCY_DATA[columnsShown[i]])
 		else
 			currencyName, currencyWidth, currencyIcon = unpack(CURRENCY_DATA[i])
+			-- This is the first load: Make sure the savedVars are set
+			Currencies:GetDB().global.shown[currencyName] = true
 		end
 		
-		header = ChillEffectCurrencyFrame.columns[i+1]
-		header:Show()
-		
-		header.mouseover = currencyName
-		header.icon:SetTexture(currencyIcon)
-		header.sortType = currencyName
-		
-		header:SetScript("OnClick", SetSortingOrder)
-		-- SetColumnWidth calls header:SetWidth(). Not sure how I feel about that.
-		-- SetColumnWidth(i+1, 9*(currencyWidth+1) +2*CECF_COLUMN_PADDING) -- Why currencyWidth+1? Because the total has an approx max of one more digit (10 characters)
-		
-		-- Using min-width instead of dynamic due to the choice to implement a column cap.
 		if currencyWidth < MIN_COLUMN_CHAR_WIDTH then
-			SetColumnWidth(i+1, 9*(MIN_COLUMN_CHAR_WIDTH+1) +2*CECF_COLUMN_PADDING)
+			SetColumnWidth(currentColumn, 9*(MIN_COLUMN_CHAR_WIDTH+1) +2*CECF_COLUMN_PADDING)
 		else
-			SetColumnWidth(i+1, 9*(currencyWidth+1) +2*CECF_COLUMN_PADDING)
-		end
-		horzSpaceAvailable = horzSpaceAvailable - header:GetWidth()
-			
-		--== Turn this last column into the [+] button and push the extra space into the Character tab, and hide any remaining buttons. Break the outer loop - we're done!
-		if horzSpaceAvailable < 24 or i > NUM_MAX_CURRENCY_HEADERS then
-			-- print("Breaking at column "..i)
-			header.mouseover = ""
-			header.icon:SetTexture([[Interface\Common\UI-ModelControlPanel]])
-			header.icon:SetTexCoord(0.578125, 0.828125, 0.1484375, 0.2734275)
-			horzSpaceAvailable = horzSpaceAvailable + header:GetWidth() - 24
-			header:SetScript("OnClick", ShowSelectionDropdown)
-			
-			-- Hide the headers
-			for j = i+2, NUM_MAX_CURRENCY_HEADERS+1 do
-				ChillEffectCurrencyFrame.columns[j]:Hide()
-			end
-			
-			-- Hide the rows
-			for j=1, CECF_NUM_ROWS do
-				ChillEffectCurrencyFrame.rows[j].columns[i+1]:Hide()
-			end
-			
-			-- Show the faction icons, hide the stripes
-			if numFactions == 1 then
-				if hasAlliance then
-					ChillEffectCurrencyFrame.totals[1].columns[i+1].icon:SetTexture([[Interface\PVPFrame\PVP-Currency-Alliance]])
-					ChillEffectCurrencyFrame.totals[1].columns[i+1].icon:Show()
-					ChillEffectCurrencyFrame.totals[1].columns[i+1].stripe:Hide()
-				else
-					ChillEffectCurrencyFrame.totals[1].columns[i+1].icon:SetTexture([[Interface\PVPFrame\PVP-Currency-Horde]])
-					ChillEffectCurrencyFrame.totals[1].columns[i+1].icon:Show()
-					ChillEffectCurrencyFrame.totals[1].columns[i+1].stripe:Hide()
-				end
-			elseif numFactions > 1 then
-				ChillEffectCurrencyFrame.totals[1].columns[i+1].icon:SetTexture([[Interface\PVPFrame\PVP-Currency-Alliance]])
-				ChillEffectCurrencyFrame.totals[1].columns[i+1].icon:Show()
-				ChillEffectCurrencyFrame.totals[1].columns[i+1].stripe:Hide()
-				ChillEffectCurrencyFrame.totals[2].columns[i+1].icon:SetTexture([[Interface\PVPFrame\PVP-Currency-Horde]])
-				ChillEffectCurrencyFrame.totals[2].columns[i+1].icon:Show()
-				ChillEffectCurrencyFrame.totals[2].columns[i+1].stripe:Hide()
-			end
-			-- Set this column to the right width and dump the extra space on the character name column
-			SetColumnWidth(i+1, CECF_LAST_COLUMN_MIN_WIDTH)
-			SetColumnWidth(1, widestName + horzSpaceAvailable)
-			
-			-- Peace out y'all
-			break
+			SetColumnWidth(currentColumn, 9*(currencyWidth+1) +2*CECF_COLUMN_PADDING)
 		end
 		
-		--== If we get down to here, the column will have content, so set the texts. Including on the totals row(s)
-		local row = 1
-		local character, count
-		local totals = { ["Horde"] = {}, ["Alliance"] = {} }
-		totals["Horde"][currencyName] = 0
-		totals["Alliance"][currencyName] = 0
-		for k, v in pairs(sortTable) do
-			character = v[2]
-			count = CharacterModule.GetCurrencyCount(character, currencyName) or 0
-			
-			SetCurrencyColumnText(ChillEffectCurrencyFrame.rows[row].columns[i+1], currencyName, currencyWidth, count)
-			
-			if self.db.sv.factionrealm["Horde - ".. realmName][v[1]] then
-				totals["Horde"][currencyName] = totals["Horde"][currencyName] + count
-			elseif self.db.sv.factionrealm["Alliance - ".. realmName][v[1]] then
-				totals["Alliance"][currencyName] = totals["Alliance"][currencyName] + count
-			end
-			row = row + 1
-		end
+		SetColumnHeader(currentColumn, false, currencyName, currencyWidth, currencyIcon)
+		SetContentColumn(currentColumn, currencyName, characterOrder, self.db.sv.factionrealm["Horde - ".. realmName], self.db.sv.factionrealm["Alliance - ".. realmName])
 		
-		if numFactions == 1 and hasAlliance then
-			SetCurrencyColumnText(ChillEffectCurrencyFrame.totals[1].columns[i+1], currencyName, currencyWidth, totals["Alliance"][currencyName])
-		elseif numFactions == 1 and hasHorde then
-			SetCurrencyColumnText(ChillEffectCurrencyFrame.totals[1].columns[i+1], currencyName, currencyWidth, totals["Horde"][currencyName])
-		elseif numFactions > 1 then
-			SetCurrencyColumnText(ChillEffectCurrencyFrame.totals[1].columns[i+1], currencyName, currencyWidth, totals["Alliance"][currencyName])
-			SetCurrencyColumnText(ChillEffectCurrencyFrame.totals[2].columns[i+1], currencyName, currencyWidth, totals["Horde"][currencyName])
-			-- ChillEffectCurrencyFrame.totals[2].columns[i+1].icon:Hide()
-		end
-		-- ChillEffectCurrencyFrame.totals[1].columns[i+1].icon:Hide()
-
-	end
+		-- print(format("From %d remaining, %d used on column %d", horzSpaceAvailable, GetColumnWidth(currentColumn) + CECF_COLUMN_MARGIN, currentColumn))
+		horzSpaceAvailable = horzSpaceAvailable - GetColumnWidth(currentColumn) - CECF_COLUMN_MARGIN
+	end	
 	
-	ChillEffectCurrencyFrameInset:SetPoint("TOPLEFT", 4, -CECF_HEADER_HEIGHT)
-	ChillEffectCurrencyFrameInset:SetPoint("BOTTOMRIGHT", -6, 4+CECF_TOTALS_ROW_HEIGHT*numFactions)
-	
-	local CECF_ROW_HEIGHT = (ChillEffectCurrencyFrame:GetHeight()-CECF_HEADER_HEIGHT-(4+CECF_TOTALS_ROW_HEIGHT*numFactions)-8)/(row-1) --Remember me? "row" is a local var from way up top - incremented after each character
-	for index = 1, CECF_NUM_ROWS do		
-		if index == 1 then
-			ChillEffectCurrencyFrame.rows[index]:SetPoint("TOPLEFT", ChillEffectCurrencyFrame, "TOPLEFT", 6, -1-CECF_HEADER_HEIGHT-4)
-			ChillEffectCurrencyFrame.rows[index]:SetPoint("BOTTOMRIGHT", ChillEffectCurrencyFrame, "TOPLEFT", CECF_MAX_WIDTH, -1-CECF_HEADER_HEIGHT-4-CECF_ROW_HEIGHT)
-		elseif index <= CECF_MAX_CHARACTERS_PER_REALM then
-			ChillEffectCurrencyFrame.rows[index]:SetPoint("TOPLEFT", ChillEffectCurrencyFrame.rows[index-1], "BOTTOMLEFT", 0, 0)
-			ChillEffectCurrencyFrame.rows[index]:SetPoint("BOTTOMRIGHT", ChillEffectCurrencyFrame.rows[index-1], "BOTTOMRIGHT", 0, -CECF_ROW_HEIGHT)
+	--== And handle the last column
+	do
+		-- print("Breaking at column "..lastColumn)
+		SetColumnWidth(currentColumn+1, CECF_LAST_COLUMN_MIN_WIDTH)
+		SetColumnHeader(currentColumn+1, true)
+		SetFinalColumn(currentColumn+1, hasHorde, hasAlliance)
+		
+		-- print(format("From %d remaining, %d used on column %d", horzSpaceAvailable, GetColumnWidth(currentColumn+1) + CECF_COLUMN_MARGIN, currentColumn+1))
+		horzSpaceAvailable = horzSpaceAvailable - GetColumnWidth(currentColumn+1) - CECF_COLUMN_MARGIN
+		
+		-- print(format("Setting first column to %dpx", widestName + horzSpaceAvailable))
+		-- Spread out the available space. Give an extra share to the first column.
+		local spacePerColumn = horzSpaceAvailable / (currentColumn+2)
+		SetColumnWidth(1, widestName + spacePerColumn*3)
+		for i=2, currentColumn do
+			-- if currencyWidth < MIN_COLUMN_CHAR_WIDTH then
+				-- SetColumnWidth(currentColumn, 9*(MIN_COLUMN_CHAR_WIDTH+1) +2*CECF_COLUMN_PADDING + spacePerColumn)
+			-- else
+				-- SetColumnWidth(currentColumn, 9*(currencyWidth+1) +2*CECF_COLUMN_PADDING + spacePerColumn)
+			-- end
+			SetColumnWidth(i, GetColumnWidth(i) + spacePerColumn)
 		end
 	end
 	
-	ChillEffectCurrencyFrame.totals[1]:SetPoint("TOPLEFT", ChillEffectCurrencyFrameInset, "BOTTOMLEFT", 2, -2)
-	ChillEffectCurrencyFrame.totals[1]:SetPoint("BOTTOMRIGHT", ChillEffectCurrencyFrameInset, "BOTTOMLEFT", CECF_MAX_WIDTH, -2-CECF_TOTALS_ROW_HEIGHT)
-	if numFactions > 1 then
-		ChillEffectCurrencyFrame.totals[2]:SetPoint("TOPLEFT", ChillEffectCurrencyFrame.totals[1], "BOTTOMLEFT", 0, 0)
-		ChillEffectCurrencyFrame.totals[2]:SetPoint("BOTTOMRIGHT", ChillEffectCurrencyFrame.totals[1], "BOTTOMRIGHT", 0, -CECF_TOTALS_ROW_HEIGHT)
+	--== Hide the remainder of the columns
+	for j = currentColumn+2, NUM_MAX_CURRENCY_HEADERS+2 do
+		HideColumn(j)
+	end
+	
+	--== Is the selection dropdown showing? If so, reposition it because we might've just added or removed a column
+	ShowSelectionDropdown(ChillEffectCurrencyFrame.headers[currentColumn+1])
+	ShowSelectionDropdown(ChillEffectCurrencyFrame.headers[currentColumn+1])
+	
+	--== Adjust the frame for the correct number of content and totals rows
+	do
+		ChillEffectCurrencyFrameTitleText:SetText("All Characters - " .. realmName)
+		
+		ChillEffectCurrencyFrameInset:SetPoint("TOPLEFT", 4, -CECF_HEADER_HEIGHT)
+		ChillEffectCurrencyFrameInset:SetPoint("BOTTOMRIGHT", -6, 4+CECF_TOTALS_ROW_HEIGHT*numFactions)
+		
+		local CECF_ROW_HEIGHT = (ChillEffectCurrencyFrame:GetHeight()-CECF_HEADER_HEIGHT-(4+CECF_TOTALS_ROW_HEIGHT*numFactions)-8)/CECF_MAX_CHARACTERS_PER_REALM --(row-1)
+		--Remember me? "row" is a local var from way up top - incremented after each character
+		for i=row, CECF_NUM_ROWS do
+			ChillEffectCurrencyFrame.rows[i]:Hide()
+		end
+		
+		for index = 1, CECF_NUM_ROWS do		
+			if index == 1 then
+				ChillEffectCurrencyFrame.rows[index]:SetPoint("TOPLEFT", ChillEffectCurrencyFrame, "TOPLEFT", 6, -1-CECF_HEADER_HEIGHT-4)
+				ChillEffectCurrencyFrame.rows[index]:SetPoint("BOTTOMRIGHT", ChillEffectCurrencyFrame, "TOPLEFT", CECF_MAX_WIDTH, -1-CECF_HEADER_HEIGHT-4-CECF_ROW_HEIGHT)
+			elseif index <= CECF_MAX_CHARACTERS_PER_REALM then
+				ChillEffectCurrencyFrame.rows[index]:SetPoint("TOPLEFT", ChillEffectCurrencyFrame.rows[index-1], "BOTTOMLEFT", 0, 0)
+				ChillEffectCurrencyFrame.rows[index]:SetPoint("BOTTOMRIGHT", ChillEffectCurrencyFrame.rows[index-1], "BOTTOMRIGHT", 0, -CECF_ROW_HEIGHT)
+			end
+		end
+		
+		ChillEffectCurrencyFrame.totals[1]:SetPoint("TOPLEFT", ChillEffectCurrencyFrameInset, "BOTTOMLEFT", 2, -2)
+		ChillEffectCurrencyFrame.totals[1]:SetPoint("BOTTOMRIGHT", ChillEffectCurrencyFrameInset, "BOTTOMLEFT", CECF_MAX_WIDTH, -2-CECF_TOTALS_ROW_HEIGHT)
+		if numFactions > 1 then
+			ChillEffectCurrencyFrame.totals[2]:SetPoint("TOPLEFT", ChillEffectCurrencyFrame.totals[1], "BOTTOMLEFT", 0, 0)
+			ChillEffectCurrencyFrame.totals[2]:SetPoint("BOTTOMRIGHT", ChillEffectCurrencyFrame.totals[1], "BOTTOMRIGHT", 0, -CECF_TOTALS_ROW_HEIGHT)
+		end
 	end
 end
 

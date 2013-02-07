@@ -4,13 +4,52 @@ local L = LibStub("AceLocale-3.0"):GetLocale("ChillEffectAlts", true)
 local CurrenciesModule = addonTable.Currencies
 local CharacterModule = addonTable.Character
 local Character
+BINDING_HEADER_THEALTERNATIVEHEADER = "The Alternative"
 
+local CharTabtable = {}; 
+local CF_TabBoundsCheck = function(self)
+	self = self and self:GetName() or "CharacterFrameTab" -- hack to make sure it resizes when the CharacterFrame expands/collapses
+	local NUM_CHARACTERFRAME_TABS = 5
+	if ( string.sub(self, 1, 17) ~= "CharacterFrameTab" ) then
+		return;
+	end
+	 
+	for i=1, NUM_CHARACTERFRAME_TABS do
+		_G["CharacterFrameTab"..i.."Text"]:SetWidth(0);
+		PanelTemplates_TabResize(_G["CharacterFrameTab"..i], 0, nil, 36, 88);
+	end
+	 
+	local diff = _G["CharacterFrameTab"..NUM_CHARACTERFRAME_TABS]:GetRight() - CharacterFrame:GetRight();
+	 
+	if ( diff > 0 ) then
+		--Find the biggest tab
+		for i=1, NUM_CHARACTERFRAME_TABS do
+			CharTabtable[i]=_G["CharacterFrameTab"..i];
+		end
+		table.sort(CharTabtable, function(frame1, frame2)   return frame1:GetWidth() > frame2:GetWidth();	end);
+		 
+		local i=1;
+		while ( diff > 0 and i <= NUM_CHARACTERFRAME_TABS) do
+			local tabText = _G[CharTabtable[i]:GetName().."Text"]
+			local change = min(10, diff);
+			diff = diff - change;
+			tabText:SetWidth(0);
+			PanelTemplates_TabResize(CharTabtable[i], -change, nil, 36-change, 88);
+	--		print(format("Resizing tab %s by %d", CharTabtable[i]:GetName(), change))
+			i = i+1;
+		end
+	end
+	-- print("Checked bounds, resizing")
+	-- CharacterFrameTab2:Hide()
+	-- CharacterFrameTab3:SetPoint("LEFT", "CharacterFrameTab1", "RIGHT", -15, 0)
+end
+	
 function ChillEffectAlts:OnInitialize()
 	local defaults = {
 		char = {
 			currencies = {},
 			bags = {},
-			inventory = {},
+			bank = {},
 		},
 		global = {
 			shown = {}
@@ -20,19 +59,29 @@ function ChillEffectAlts:OnInitialize()
 	self.db.realm[UnitName("player")] = true
 	self.db.factionrealm[UnitName("player")] = true
 	
-	SLASH_ChillEffectAlts1 = "/alt"
-	SlashCmdList["ChillEffectAlts"] = function()
-		if self.frame:IsShown() then
-			self.frame:Hide()
-		else
-			self.frame:Show()
-		end
-	end
+	-- SLASH_ChillEffectAlts1 = "/alt"
+	-- SlashCmdList["ChillEffectAlts"] = function()
+		-- if self.frame:IsShown() then
+			-- self.frame:Hide()
+		-- else
+			-- self.frame:Show()
+		-- end
+	-- end
 	
 	CharacterFrameTab1:SetPoint("TOPLEFT", CharacterFrame, "BOTTOMLEFT", -8, 2)
 	AC = CreateFrame("Button", "CharacterFrameTab5", CharacterFrame, "CharacterFrameTabButtonTemplate", 5)
 	AC:SetPoint("LEFT", "CharacterFrameTab4", "RIGHT", -15, 0)
 	AC:SetText("All Characters")
+	AC:SetScript("OnShow", function(self)
+		if CharacterFrameTab4:IsShown() then
+			self:SetPoint("LEFT", "CharacterFrameTab4", "RIGHT", -15, 0)
+		else
+			self:SetPoint("LEFT", "CharacterFrameTab3", "RIGHT", -15, 0)
+		end
+	end)
+	CharacterFrameTab4:HookScript("OnShow", function()
+		CharacterFrameTab5:SetPoint("LEFT", "CharacterFrameTab4", "RIGHT", -15, 0)
+	end)
 	AC:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT");
 		-- Second arg = GetBindingKey(action)
@@ -41,53 +90,39 @@ function ChillEffectAlts:OnInitialize()
 	AC:SetScript("OnLeave",GameTooltip_Hide)
 					
 	PanelTemplates_SetNumTabs(CharacterFrame, 5)
-	
-	local CharTabtable = {}; 
-	local CF_TabBoundsCheck = function(self)
-		self = self and self:GetName() or "CharacterFrameTab" -- hack to make sure it resizes when the CharacterFrame expands/collapses
-		local NUM_CHARACTERFRAME_TABS = 5
-		if ( string.sub(self, 1, 17) ~= "CharacterFrameTab" ) then
-			return;
-		end
-		 
-		for i=1, NUM_CHARACTERFRAME_TABS do
-			_G["CharacterFrameTab"..i.."Text"]:SetWidth(0);
-			PanelTemplates_TabResize(_G["CharacterFrameTab"..i], 0, nil, 36, 88);
-		end
-		 
-		local diff = _G["CharacterFrameTab"..NUM_CHARACTERFRAME_TABS]:GetRight() - CharacterFrame:GetRight();
-		 
-		if ( diff > 0 ) then
-			--Find the biggest tab
-			for i=1, NUM_CHARACTERFRAME_TABS do
-				CharTabtable[i]=_G["CharacterFrameTab"..i];
-			end
-			table.sort(CharTabtable, function(frame1, frame2)   return frame1:GetWidth() > frame2:GetWidth();	end);
-			 
-			local i=1;
-			while ( diff > 0 and i <= NUM_CHARACTERFRAME_TABS) do
-				local tabText = _G[CharTabtable[i]:GetName().."Text"]
-				local change = min(10, diff);
-				diff = diff - change;
-				tabText:SetWidth(0);
-				PanelTemplates_TabResize(CharTabtable[i], -change, nil, 36-change, 88);
-		--		print(format("Resizing tab %s by %d", CharTabtable[i]:GetName(), change))
-				i = i+1;
-			end
-		end
-	end
+
 	hooksecurefunc("CharacterFrame_TabBoundsCheck", CF_TabBoundsCheck)
 	hooksecurefunc("CharacterFrame_Expand", CF_TabBoundsCheck)
 	hooksecurefunc("CharacterFrame_Collapse", CF_TabBoundsCheck)
+	hooksecurefunc("PetPaperDollFrame_UpdateIsAvailable", function()
+		CharacterFrameTab2:Hide()
+		CharacterFrameTab3:SetPoint("LEFT", "CharacterFrameTab2", "LEFT", 0, 0)
+	end)
 	
 	hooksecurefunc("CharacterFrameTab_OnClick", function(self, button)
 		local name = self:GetName();
 		 
 		if ( name == "CharacterFrameTab5" ) then
 			ToggleCharacter("ChillEffectCurrencyFrame")
+			CF_TabBoundsCheck(self)
 		end
 		PlaySound("igCharacterInfoTab");
 	end)
+	
+	CharacterFrameTab2:HookScript("OnShow", function(self)
+		self:Hide()
+		CharacterFrameTab3:SetPoint("LEFT", "CharacterFrameTab2", "LEFT", 0, 0)
+	end)
+end
+
+function ChillEffectAlts:ToggleCurrenciesFrame()
+	if CurrenciesModule:GetFrame():IsShown() then
+		CurrenciesModule:GetFrame():Hide()
+		CharacterFrameCloseButton:Click()
+	else
+		ToggleCharacter("ChillEffectCurrencyFrame")
+		CF_TabBoundsCheck(self)
+	end
 end
 
 local function UpdateCurrencies()
@@ -113,7 +148,7 @@ end
 
 function ChillEffectAlts:BANKFRAME_OPENED()
 	self.isBankOpen = true
-	self:UpdateBank()
+	Character:UpdateBank()
 end
 
 function ChillEffectAlts:BANKFRAME_CLOSED()
