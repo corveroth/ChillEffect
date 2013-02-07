@@ -1,0 +1,15 @@
+## Interface: 50001
+## Title: The Alternative
+## Author: Corv
+## Notes: Tracks currencies and inventories across characters.
+## SavedVariables: CEAltsDB
+
+Libs\UTF8\utf8data.lua
+Libs\UTF8\utf8.lua
+embeds.xml
+
+Locales\en-US.lua
+
+Character.lua
+Currencies.lua
+ChillEffectAlts.lua
